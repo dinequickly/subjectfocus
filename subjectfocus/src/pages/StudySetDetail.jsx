@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { useAuth } from '../hooks/useAuth'
+import ChatKitWidget from '../components/ChatKitWidget'
 
 export default function StudySetDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [setData, setSetData] = useState(null)
   const [cards, setCards] = useState([])
   const [loading, setLoading] = useState(true)
@@ -24,6 +27,17 @@ export default function StudySetDetail() {
   const [editingId, setEditingId] = useState(null)
   const [editTerm, setEditTerm] = useState('')
   const [editDefinition, setEditDefinition] = useState('')
+
+  // Sidebar counts for generated content types
+  const [gcCounts, setGcCounts] = useState({
+    study_guide: 0,
+    practice_test: 0,
+    podcast: 0,
+    mindmap: 0,
+    brief: 0,
+  })
+
+  const addTermRef = useRef(null)
 
   const canRender = useMemo(() => !!id, [id])
 
@@ -51,6 +65,21 @@ export default function StudySetDetail() {
         .is('deleted_at', null)
         .order('created_at', { ascending: true })
       setCards(cardsData || [])
+
+      // fetch generated content type counts for this set
+      const { data: gcData } = await supabase
+        .from('generated_content')
+        .select('content_type')
+        .eq('study_set_id', id)
+      if (gcData) {
+        const counts = { study_guide: 0, practice_test: 0, podcast: 0, mindmap: 0, brief: 0 }
+        for (const row of gcData) {
+          const key = row.content_type
+          if (key in counts) counts[key]++
+        }
+        setGcCounts(counts)
+      }
+
       setLoading(false)
     })()
     return () => { mounted = false }
@@ -90,6 +119,8 @@ export default function StudySetDetail() {
     else {
       setCards(c => [...c, data])
       setTerm(''); setDefinition('')
+      // focus back to term input for rapid entry
+      addTermRef.current?.focus()
     }
   }
 
@@ -130,23 +161,54 @@ export default function StudySetDetail() {
     if (!error) setCards(cs => cs.filter(c => c.id !== card.id))
   }
 
+  // Create generated content rows and update counts
+  async function createGenerated(type) {
+    if (!user) return
+    const payload = {
+      user_id: user.id,
+      study_set_id: id,
+      content_type: type,
+      status: 'pending',
+    }
+    const { error } = await supabase.from('generated_content').insert(payload)
+    if (error) {
+      setError(error.message)
+    } else {
+      setGcCounts(prev => ({ ...prev, [type]: (prev[type] ?? 0) + 1 }))
+    }
+  }
+
+  // Expose a global hook for optimistic card adds (used by chat/agent)
+  useEffect(() => {
+    window.handleNewFlashcard = (newFlashcard) => {
+      // map expected fields to our shape
+      const q = newFlashcard?.question || newFlashcard?.term
+      const a = newFlashcard?.answer || newFlashcard?.definition
+      if (!q || !a) return
+      setCards(prev => [...prev, { id: newFlashcard.id || crypto.randomUUID(), question: q, answer: a }])
+    }
+    return () => { delete window.handleNewFlashcard }
+  }, [])
+
   if (loading) return <div className="p-6">Loading...</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
   if (!setData) return <div className="p-6">Not found</div>
 
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{setData.title}</h1>
-          <div className="text-sm text-gray-600">{setData.subject_area || '—'} · {setData.total_cards} cards</div>
-          {setData.description && <p className="mt-2 text-gray-800 whitespace-pre-wrap">{setData.description}</p>}
-        </div>
-        <div className="space-x-2">
-          <button onClick={() => setEditOpen(v=>!v)} className="px-3 py-1.5 border rounded">Edit</button>
-          <button onClick={deleteSet} className="px-3 py-1.5 border rounded text-red-600">Delete</button>
-        </div>
-      </div>
+    <div className="max-w-6xl mx-auto p-4">
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-8 space-y-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold">{setData.title}</h1>
+              <div className="text-sm text-gray-600">{setData.subject_area || '—'} · {setData.total_cards} cards</div>
+              {setData.description && <p className="mt-2 text-gray-800 whitespace-pre-wrap">{setData.description}</p>}
+            </div>
+            <div className="space-x-2">
+              <button onClick={() => setEditOpen(v=>!v)} className="px-3 py-1.5 border rounded">Edit</button>
+              <button onClick={deleteSet} className="px-3 py-1.5 border rounded text-red-600">Delete</button>
+            </div>
+          </div>
 
       {editOpen && (
         <form onSubmit={updateSet} className="border rounded p-4 space-y-3">
@@ -207,12 +269,46 @@ export default function StudySetDetail() {
         )}
 
         <form onSubmit={addCard} className="mt-4 grid gap-2 sm:grid-cols-2">
-          <input className="border rounded px-3 py-2" placeholder="Term" value={term} onChange={e=>setTerm(e.target.value)} />
+          <input ref={addTermRef} className="border rounded px-3 py-2" placeholder="Term" value={term} onChange={e=>setTerm(e.target.value)} />
           <input className="border rounded px-3 py-2" placeholder="Definition" value={definition} onChange={e=>setDefinition(e.target.value)} />
           <div className="sm:col-span-2">
             <button disabled={creatingCard} className="bg-indigo-600 text-white px-4 py-2 rounded">Add Flashcard</button>
           </div>
         </form>
+      </div>
+        </div>
+        <aside className="lg:col-span-4">
+          <div className="border rounded p-4 sticky top-4 space-y-4">
+            <div className="font-medium">Quick Actions</div>
+            <div className="flex flex-wrap gap-2 text-sm">
+              <span className="px-2 py-1 rounded bg-gray-100">📇 Flashcards ({cards.length})</span>
+              <span className="px-2 py-1 rounded bg-gray-100">📝 Study Guides ({gcCounts.study_guide})</span>
+              <span className="px-2 py-1 rounded bg-gray-100">📊 Practice Tests ({gcCounts.practice_test})</span>
+              <span className="px-2 py-1 rounded bg-gray-100">🎙️ Podcasts ({gcCounts.podcast})</span>
+              <span className="px-2 py-1 rounded bg-gray-100">🧠 Mind Maps ({gcCounts.mindmap})</span>
+              <span className="px-2 py-1 rounded bg-gray-100">📰 Briefs ({gcCounts.brief})</span>
+            </div>
+
+            <div className="space-y-2">
+              <button onClick={() => addTermRef.current?.focus()} className="w-full px-3 py-2 border rounded text-left">+ Add Flashcard</button>
+              <button onClick={() => createGenerated('study_guide')} className="w-full px-3 py-2 border rounded text-left">Generate Study Guide</button>
+              <button onClick={() => createGenerated('practice_test')} className="w-full px-3 py-2 border rounded text-left">Generate Practice Test</button>
+              <button onClick={() => createGenerated('podcast')} className="w-full px-3 py-2 border rounded text-left">Generate Podcast</button>
+              <button onClick={() => createGenerated('mindmap')} className="w-full px-3 py-2 border rounded text-left">Generate Mind Map</button>
+              <button onClick={() => createGenerated('brief')} className="w-full px-3 py-2 border rounded text-left">Generate Brief</button>
+            </div>
+
+            <div className="pt-2 border-t">
+              <button onClick={deleteSet} className="w-full px-3 py-2 border rounded text-left text-red-600">Delete Study Set</button>
+            </div>
+
+            <div className="pt-2 border-t space-y-2">
+              <div className="text-sm text-gray-600">Chat</div>
+              <ChatKitWidget workflowId="wf_6907e8b911c881909b036fee34d733300fde86d3184a9aa3" />
+              <div className="text-xs text-gray-500">Use window.handleNewFlashcard({`{ term, definition }`}) for optimistic add.</div>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   )
