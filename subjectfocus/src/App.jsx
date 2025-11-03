@@ -6,6 +6,10 @@ import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import CreateStudySet from './pages/CreateStudySet'
 import StudySetDetail from './pages/StudySetDetail'
+import PracticeMode from './pages/PracticeMode'
+import StudyGuidesList from './pages/StudyGuidesList'
+import StudyGuideView from './pages/StudyGuideView'
+import StudyGuideEditor from './pages/StudyGuideEditor'
 
 export default function App() {
   return (
@@ -36,6 +40,38 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <StudySetDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice"
+            element={
+              <ProtectedRoute>
+                <PracticeMode />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/guides"
+            element={
+              <ProtectedRoute>
+                <StudyGuidesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/guides/:guideId"
+            element={
+              <ProtectedRoute>
+                <StudyGuideView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/guides/:guideId/edit"
+            element={
+              <ProtectedRoute>
+                <StudyGuideEditor />
               </ProtectedRoute>
             }
           />

@@ -15,14 +15,14 @@ export default async function handler(req, res) {
 
     const { messages = [], context = {}, temperature, user_id } = req.body || {}
 
-    const { message, flashcards } = await runAssistantChat({
+    const result = await runAssistantChat({
       apiKey,
       messages,
       context,
       temperature,
       user_id,
     })
-    res.status(200).json({ message, flashcards })
+    res.status(200).json(result)
   } catch (error) {
     console.error('Chat handler error', error)
     const status = error?.status || 500
