@@ -7,9 +7,10 @@ Frontend (Vite):
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Backend (serverless for ChatKit):
-- `OPENAI_API_KEY` (required)
-- `CHATKIT_WORKFLOW_ID` (optional; defaults to the provided workflow)
+- Backend (serverless chat):
+  - `OPENAI_API_KEY` (required)
+  - `OPENAI_ASSISTANT_MODEL` (optional; defaults to `gpt-4.1-mini`)
+  - `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` (required for auto-saving flashcards)
 
 Create `.env.local` in project root for Vite. For serverless in local dev, use `netlify dev` or `vercel dev` with env vars set.
 
@@ -22,15 +23,15 @@ npm run dev
 ## Run with Chat (Netlify)
 ```
 # set envs for functions
-netlify dev --env OPENAI_API_KEY=sk-... --env CHATKIT_WORKFLOW_ID=wf_...
+netlify dev --env OPENAI_API_KEY=sk-...
 ```
-This serves frontend and maps `/api/chatkit/session` to `/.netlify/functions/chatkit-session`.
+This serves frontend and maps `/api/chat` to `/.netlify/functions/chat`.
 
 ## Run with Chat (Vercel)
 ```
 vercel dev
 ```
-This serves `/api/chatkit/session` from `api/chatkit/session.js`.
+This serves `/api/chat` from `api/chat/index.js`.
 
 ## Build
 ```
@@ -41,12 +42,4 @@ npm run build
 - `/login`, `/signup`
 - `/` (dashboard)
 - `/study-set/new` (create set + inline cards)
-- `/study-set/:id` (detail + right sidebar actions + ChatKit)
-
-## Optimistic Flashcard Adds
-When your agent returns a flashcard, call in browser:
-```
-window.handleNewFlashcard({ term: '...', definition: '...' })
-```
-The list updates immediately without a refresh.
-
+- `/study-set/:id` (detail + right sidebar actions + AI chat)

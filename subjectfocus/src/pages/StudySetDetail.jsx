@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../hooks/useAuth'
-import ChatKitWidget from '../components/ChatKitWidget'
+import AIChatPanel from '../components/AIChatPanel'
 
 export default function StudySetDetail() {
   const { id } = useParams()
@@ -178,17 +178,45 @@ export default function StudySetDetail() {
     }
   }
 
-  // Expose a global hook for optimistic card adds (used by chat/agent)
-  useEffect(() => {
-    window.handleNewFlashcard = (newFlashcard) => {
-      // map expected fields to our shape
-      const q = newFlashcard?.question || newFlashcard?.term
-      const a = newFlashcard?.answer || newFlashcard?.definition
-      if (!q || !a) return
-      setCards(prev => [...prev, { id: newFlashcard.id || crypto.randomUUID(), question: q, answer: a }])
+  const chatContext = useMemo(() => ({
+    study_set_id: id,
+    user_id: user?.id,
+    title: setData?.title,
+    subject: setData?.subject_area,
+    description: setData?.description,
+    cards: cards.map(card => ({ term: card.question, definition: card.answer })),
+  }), [setData, cards, user])
+
+  async function handleAIFlashcard(card) {
+    if (card.error) throw new Error(card.error)
+    const targetId = card.study_set_id || id
+    if (targetId !== id) {
+      throw new Error('Assistant targeted a different study set')
     }
-    return () => { delete window.handleNewFlashcard }
-  }, [])
+    const term = card.term?.trim()
+    const definition = card.definition?.trim()
+    if (!term || !definition) throw new Error('Missing term or definition')
+
+    if (card.id) {
+      setCards(prev => [...prev, { id: card.id, question: term, answer: definition }])
+      setSetData(prev => (prev ? { ...prev, total_cards: (prev.total_cards ?? cards.length) + 1 } : prev))
+      return
+    }
+
+    const payload = {
+      study_set_id: id,
+      question: term,
+      answer: definition,
+    }
+    const { data, error } = await supabase
+      .from('flashcards')
+      .insert(payload)
+      .select('id, question, answer')
+      .single()
+    if (error) throw new Error(error.message)
+    setCards(prev => [...prev, data])
+    setSetData(prev => (prev ? { ...prev, total_cards: (prev.total_cards ?? cards.length) + 1 } : prev))
+  }
 
   if (loading) return <div className="p-6">Loading...</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
@@ -303,9 +331,8 @@ export default function StudySetDetail() {
             </div>
 
             <div className="pt-2 border-t space-y-2">
-              <div className="text-sm text-gray-600">Chat</div>
-              <ChatKitWidget workflowId="wf_6907e8b911c881909b036fee34d733300fde86d3184a9aa3" />
-              <div className="text-xs text-gray-500">Use window.handleNewFlashcard({`{ term, definition }`}) for optimistic add.</div>
+              <div className="text-sm text-gray-600">AI Assistant</div>
+              <AIChatPanel context={chatContext} onFlashcard={handleAIFlashcard} />
             </div>
           </div>
         </aside>
