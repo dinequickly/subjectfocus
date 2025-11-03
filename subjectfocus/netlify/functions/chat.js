@@ -14,7 +14,7 @@ export async function handler(event) {
     const body = event.body ? JSON.parse(event.body) : {}
     const { messages = [], context = {}, temperature, user_id } = body
 
-    const { message, flashcards } = await runAssistantChat({
+    const result = await runAssistantChat({
       apiKey,
       messages,
       context,
@@ -25,7 +25,7 @@ export async function handler(event) {
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, flashcards }),
+      body: JSON.stringify(result),
     }
   } catch (error) {
     console.error('Chat function error', error)
