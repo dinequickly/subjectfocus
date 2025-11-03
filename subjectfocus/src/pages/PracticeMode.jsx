@@ -96,6 +96,23 @@ export default function PracticeMode() {
     navigate(`/study-set/${id}`)
   }
 
+  async function toggleStar() {
+    const currentCard = displayCards[currentIndex]
+    if (!currentCard) return
+
+    const newStarred = !currentCard.starred
+    const { error } = await supabase
+      .from('flashcards')
+      .update({ starred: newStarred })
+      .eq('id', currentCard.id)
+
+    if (!error) {
+      // Update both allCards and displayCards
+      setAllCards(cards => cards.map(c => c.id === currentCard.id ? { ...c, starred: newStarred } : c))
+      setDisplayCards(cards => cards.map(c => c.id === currentCard.id ? { ...c, starred: newStarred } : c))
+    }
+  }
+
   if (loading) return <div className="p-6">Loading...</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
   if (!setData) return <div className="p-6">Not found</div>
@@ -207,8 +224,20 @@ export default function PracticeMode() {
             </div>
           </div>
 
+          {/* Star Button */}
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={toggleStar}
+              className="px-4 py-2 border rounded flex items-center gap-2 hover:bg-gray-50"
+              title={currentCard.starred ? 'Unstar this card' : 'Star this card'}
+            >
+              <span className="text-xl">{currentCard.starred ? '⭐' : '☆'}</span>
+              <span className="text-sm">{currentCard.starred ? 'Starred' : 'Star this card'}</span>
+            </button>
+          </div>
+
           {/* Navigation Controls */}
-          <div className="mt-6 flex items-center justify-between">
+          <div className="mt-4 flex items-center justify-between">
             <button
               onClick={handlePrevious}
               disabled={currentIndex === 0}

@@ -285,12 +285,12 @@ export default function StudySetDetail() {
       )}
 
       <div className="border rounded p-4">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center gap-3">
           <div className="font-medium">Flashcards</div>
           {cards.length > 0 && (
             <button
               onClick={() => navigate(`/study-set/${id}/practice`)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm"
             >
               Practice Flashcards
             </button>
