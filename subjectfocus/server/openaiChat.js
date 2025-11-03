@@ -48,12 +48,17 @@ function parseAssistantOutput(data) {
   const flashcards = []
   const textParts = []
 
-  const handleToolCall = (toolCall) => {
-    if (!toolCall || toolCall.name !== 'create_flashcard') return
+  const handleToolCall = (rawCall) => {
+    if (!rawCall) return
+    const call = rawCall.tool_call || rawCall.function_call || rawCall
+    const name = call?.name || call?.function?.name
+    if (name !== 'create_flashcard') return
+
+    const args = call?.arguments ?? call?.function?.arguments
+    if (!args) return
+
     try {
-      const parsed = typeof toolCall.arguments === 'string'
-        ? JSON.parse(toolCall.arguments)
-        : toolCall.arguments
+      const parsed = typeof args === 'string' ? JSON.parse(args) : args
       const term = parsed?.term || parsed?.question
       const definition = parsed?.definition || parsed?.answer
       const studySetId = parsed?.study_set_id || parsed?.studySetId
@@ -69,16 +74,24 @@ function parseAssistantOutput(data) {
     for (const item of data.output) {
       if (item?.type === 'message') {
         for (const piece of item.content || []) {
-          if (piece.type === 'output_text' && piece.text) textParts.push(piece.text)
-          if (piece.type === 'tool_call') handleToolCall(piece)
+          if (piece.type === 'output_text' && piece.text) {
+            textParts.push(piece.text)
+          }
+          if (piece.type === 'tool_call') {
+            handleToolCall(piece.tool_call || piece)
+          }
         }
-      } else if (item?.type === 'tool_call') {
+      } else if (item?.type === 'tool_call' || item?.type === 'tool_call_output') {
         handleToolCall(item)
       }
     }
   }
 
-  const message = textParts.join('').trim() || data?.output_text?.trim() || ''
+  let message = textParts.join('').trim() || data?.output_text?.trim() || ''
+  if (!message && flashcards.length > 0) {
+    const count = flashcards.length
+    message = `Added ${count} flashcard${count === 1 ? '' : 's'}.`
+  }
   return { message, flashcards }
 }
 
