@@ -50,7 +50,8 @@ export default function PodcastsList() {
     const labels = {
       'pre-recorded': 'Pre-Recorded',
       'live-tutor': 'Live Tutor',
-      'live-interactive': 'Live Interactive'
+      'live-interactive': 'Live Interactive',
+      'static-video': 'Video'
     }
     return labels[type] || type
   }
@@ -94,27 +95,34 @@ export default function PodcastsList() {
 
         {/* Type Filter Buttons */}
         <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-          <div className="flex gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <button
               onClick={() => navigate(`/study-set/${id}/podcasts/create?type=pre-recorded`)}
-              className="flex-1 px-4 py-3 border rounded hover:bg-gray-50 text-center"
+              className="px-4 py-3 border rounded hover:bg-gray-50 text-center"
             >
               <div className="font-medium">Pre-Recorded</div>
               <div className="text-xs text-gray-500 mt-1">Listen to generated content</div>
             </button>
             <button
               onClick={() => navigate(`/study-set/${id}/podcasts/create?type=live-tutor`)}
-              className="flex-1 px-4 py-3 border rounded hover:bg-gray-50 text-center"
+              className="px-4 py-3 border rounded hover:bg-gray-50 text-center"
             >
               <div className="font-medium">Live Tutor</div>
               <div className="text-xs text-gray-500 mt-1">Interactive tutoring session</div>
             </button>
             <button
               onClick={() => navigate(`/study-set/${id}/podcasts/create?type=live-interactive`)}
-              className="flex-1 px-4 py-3 border rounded hover:bg-gray-50 text-center"
+              className="px-4 py-3 border rounded hover:bg-gray-50 text-center"
             >
               <div className="font-medium">Live Interactive</div>
               <div className="text-xs text-gray-500 mt-1">Real-time discussion</div>
+            </button>
+            <button
+              onClick={() => navigate(`/study-set/${id}/podcasts/create?type=static-video`)}
+              className="px-4 py-3 border rounded hover:bg-gray-50 text-center"
+            >
+              <div className="font-medium">Video</div>
+              <div className="text-xs text-gray-500 mt-1">Watch generated video</div>
             </button>
           </div>
         </div>

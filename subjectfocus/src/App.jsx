@@ -5,7 +5,9 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import CreateStudySet from './pages/CreateStudySet'
-import StudySetDetail from './pages/StudySetDetail'
+import StudySetOverview from './pages/StudySetOverview'
+import FlashcardSetsList from './pages/FlashcardSetsList'
+import FlashcardSetDetail from './pages/FlashcardSetDetail'
 import PracticeMode from './pages/PracticeMode'
 import StudyGuidesList from './pages/StudyGuidesList'
 import StudyGuideView from './pages/StudyGuideView'
@@ -15,6 +17,11 @@ import CreatePodcast from './pages/CreatePodcast'
 import PodcastPlayer from './pages/PodcastPlayer'
 import LiveInteractivePodcast from './pages/LiveInteractivePodcast'
 import LiveTutorSession from './pages/LiveTutorSession'
+import CanvasSync from './pages/CanvasSync'
+import CreatePracticeTest from './pages/CreatePracticeTest'
+import TakePracticeTest from './pages/TakePracticeTest'
+import PracticeTestResults from './pages/PracticeTestResults'
+import PracticeTestsList from './pages/PracticeTestsList'
 
 export default function App() {
   return (
@@ -44,7 +51,31 @@ export default function App() {
             path="/study-set/:id"
             element={
               <ProtectedRoute>
-                <StudySetDetail />
+                <StudySetOverview />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/flashcard-sets"
+            element={
+              <ProtectedRoute>
+                <FlashcardSetsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/flashcard-set/:setId"
+            element={
+              <ProtectedRoute>
+                <FlashcardSetDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/flashcard-set/:setId/practice"
+            element={
+              <ProtectedRoute>
+                <PracticeMode />
               </ProtectedRoute>
             }
           />
@@ -117,6 +148,46 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <LiveTutorSession />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/canvas/sync"
+            element={
+              <ProtectedRoute>
+                <CanvasSync />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-tests"
+            element={
+              <ProtectedRoute>
+                <PracticeTestsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-test/create"
+            element={
+              <ProtectedRoute>
+                <CreatePracticeTest />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-test/:testId"
+            element={
+              <ProtectedRoute>
+                <TakePracticeTest />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-test/:testId/results"
+            element={
+              <ProtectedRoute>
+                <PracticeTestResults />
               </ProtectedRoute>
             }
           />
