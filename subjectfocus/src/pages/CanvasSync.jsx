@@ -52,6 +52,7 @@ export default function CanvasSync() {
           )
         `)
         .eq('user_id', user.id)
+        .is('deleted_at', null)
         .order('last_synced_at', { ascending: false })
 
       if (error) throw error
@@ -98,10 +99,16 @@ export default function CanvasSync() {
           // A. Check if course already exists
           const { data: existingCourse } = await supabase
             .from('canvas_courses')
-            .select('id, study_set_id')
+            .select('id, study_set_id, deleted_at')
             .eq('user_id', user.id)
             .eq('canvas_course_id', course.id.toString())
             .single()
+
+          // Skip if course was previously deleted
+          if (existingCourse?.deleted_at) {
+            console.log(`Skipping deleted course: ${course.name}`)
+            continue
+          }
 
           let studySetId
           let canvasCourseId
@@ -296,6 +303,30 @@ export default function CanvasSync() {
     }
   }
 
+  async function deleteCourse(courseId, courseName) {
+    if (!confirm(`Remove "${courseName}" from synced courses?\n\nThis will hide the course and prevent it from syncing again. The study set will not be deleted.`)) {
+      return
+    }
+
+    try {
+      setMessage({ type: '', text: '' })
+
+      // Soft delete the course
+      const { error } = await supabase
+        .from('canvas_courses')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', courseId)
+
+      if (error) throw error
+
+      setMessage({ type: 'success', text: `Removed ${courseName} from synced courses` })
+      await loadSyncedCourses()
+    } catch (err) {
+      console.error('Delete error:', err)
+      setMessage({ type: 'error', text: 'Failed to remove course' })
+    }
+  }
+
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto p-4">
@@ -388,20 +419,28 @@ export default function CanvasSync() {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  {course.study_set_id && (
-                    <Link
-                      to={`/study-set/${course.study_set_id}`}
-                      className="flex-1 px-3 py-1.5 text-sm text-center bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    {course.study_set_id && (
+                      <Link
+                        to={`/study-set/${course.study_set_id}`}
+                        className="flex-1 px-3 py-1.5 text-sm text-center bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                      >
+                        View Study Set
+                      </Link>
+                    )}
+                    <button
+                      onClick={() => resyncCourse(course.id, course.canvas_course_id)}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
                     >
-                      View Study Set
-                    </Link>
-                  )}
+                      Re-sync
+                    </button>
+                  </div>
                   <button
-                    onClick={() => resyncCourse(course.id, course.canvas_course_id)}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                    onClick={() => deleteCourse(course.id, course.course_name)}
+                    className="w-full px-3 py-1.5 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
                   >
-                    Re-sync
+                    Remove Course
                   </button>
                 </div>
               </div>
