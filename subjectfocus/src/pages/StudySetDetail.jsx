@@ -368,7 +368,6 @@ export default function StudySetDetail() {
               <button onClick={() => navigate(`/study-set/${id}/podcasts`)} className="w-full px-3 py-2 bg-indigo-600 text-white rounded text-left hover:bg-indigo-700">🎙️ Podcasts</button>
               <button onClick={() => createGenerated('practice_test')} className="w-full px-3 py-2 border rounded text-left">Generate Practice Test</button>
               <button onClick={() => createGenerated('mindmap')} className="w-full px-3 py-2 border rounded text-left">Generate Mind Map</button>
-              <button onClick={() => createGenerated('brief')} className="w-full px-3 py-2 border rounded text-left">Generate Brief</button>
             </div>
 
             <div className="pt-2 border-t">

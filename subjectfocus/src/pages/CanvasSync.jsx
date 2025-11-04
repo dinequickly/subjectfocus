@@ -14,6 +14,26 @@ export default function CanvasSync() {
   const CANVAS_TOKEN = import.meta.env.VITE_CANVAS_TOKEN
   const CANVAS_DOMAIN = import.meta.env.VITE_CANVAS_DOMAIN
 
+  // Helper function to call Canvas API through proxy
+  async function callCanvasAPI(endpoint) {
+    const response = await fetch('/api/canvas-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint,
+        canvasToken: CANVAS_TOKEN,
+        canvasDomain: CANVAS_DOMAIN
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Canvas API request failed')
+    }
+
+    return response.json()
+  }
+
   useEffect(() => {
     if (!user) return
     loadSyncedCourses()
@@ -61,23 +81,7 @@ export default function CanvasSync() {
       // Step 1: Fetch all active courses
       setSyncProgress({ current: 0, total: 0, currentCourse: 'Fetching courses from Canvas...' })
 
-      const coursesResponse = await fetch(
-        `https://${CANVAS_DOMAIN}/api/v1/courses?enrollment_state=active&per_page=100`,
-        {
-          headers: {
-            'Authorization': `Bearer ${CANVAS_TOKEN}`
-          }
-        }
-      )
-
-      if (!coursesResponse.ok) {
-        if (coursesResponse.status === 401) {
-          throw new Error('Canvas token is invalid or expired. Please check your credentials.')
-        }
-        throw new Error(`Canvas API error: ${coursesResponse.statusText}`)
-      }
-
-      const courses = await coursesResponse.json()
+      const courses = await callCanvasAPI('/api/v1/courses?enrollment_state=active&per_page=100')
       totalCourses = courses.length
       setSyncProgress({ current: 0, total: totalCourses, currentCourse: 'Processing courses...' })
 
@@ -152,17 +156,8 @@ export default function CanvasSync() {
           }
 
           // D. Fetch assignments for the course
-          const assignmentsResponse = await fetch(
-            `https://${CANVAS_DOMAIN}/api/v1/courses/${course.id}/assignments?per_page=100`,
-            {
-              headers: {
-                'Authorization': `Bearer ${CANVAS_TOKEN}`
-              }
-            }
-          )
-
-          if (assignmentsResponse.ok) {
-            const assignments = await assignmentsResponse.json()
+          try {
+            const assignments = await callCanvasAPI(`/api/v1/courses/${course.id}/assignments?per_page=100`)
             totalAssignments += assignments.length
 
             // E. Process each assignment
@@ -208,6 +203,9 @@ export default function CanvasSync() {
                 }
               }
             }
+          } catch (assignmentError) {
+            console.error(`Error fetching assignments for course ${course.name}:`, assignmentError)
+            // Continue with next course
           }
         } catch (courseError) {
           console.error(`Error processing course ${course.name}:`, courseError)
@@ -237,17 +235,7 @@ export default function CanvasSync() {
       setMessage({ type: '', text: '' })
 
       // Fetch course details
-      const courseResponse = await fetch(
-        `https://${CANVAS_DOMAIN}/api/v1/courses/${canvasCourseId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${CANVAS_TOKEN}`
-          }
-        }
-      )
-
-      if (!courseResponse.ok) throw new Error('Failed to fetch course details')
-      const course = await courseResponse.json()
+      const course = await callCanvasAPI(`/api/v1/courses/${canvasCourseId}`)
 
       // Update last synced timestamp
       await supabase
@@ -256,58 +244,47 @@ export default function CanvasSync() {
         .eq('id', courseId)
 
       // Fetch and process assignments (same logic as above)
-      const assignmentsResponse = await fetch(
-        `https://${CANVAS_DOMAIN}/api/v1/courses/${canvasCourseId}/assignments?per_page=100`,
-        {
-          headers: {
-            'Authorization': `Bearer ${CANVAS_TOKEN}`
-          }
-        }
-      )
+      const assignments = await callCanvasAPI(`/api/v1/courses/${canvasCourseId}/assignments?per_page=100`)
+      const { data: canvasCourse } = await supabase
+        .from('canvas_courses')
+        .select('study_set_id')
+        .eq('id', courseId)
+        .single()
 
-      if (assignmentsResponse.ok) {
-        const assignments = await assignmentsResponse.json()
-        const { data: canvasCourse } = await supabase
-          .from('canvas_courses')
-          .select('study_set_id')
-          .eq('id', courseId)
+      for (const assignment of assignments) {
+        const { data: existingAssignment } = await supabase
+          .from('canvas_assignments')
+          .select('id')
+          .eq('canvas_assignment_id', assignment.id.toString())
+          .eq('canvas_course_id', courseId)
           .single()
 
-        for (const assignment of assignments) {
-          const { data: existingAssignment } = await supabase
+        if (!existingAssignment && assignment.description && assignment.description.trim().length > 50) {
+          await supabase
             .from('canvas_assignments')
-            .select('id')
-            .eq('canvas_assignment_id', assignment.id.toString())
-            .eq('canvas_course_id', courseId)
-            .single()
+            .insert({
+              canvas_course_id: courseId,
+              canvas_assignment_id: assignment.id.toString(),
+              assignment_name: assignment.name,
+              assignment_description: assignment.description,
+              due_date: assignment.due_at,
+              points_possible: assignment.points_possible,
+              flashcards_generated: false
+            })
 
-          if (!existingAssignment && assignment.description && assignment.description.trim().length > 50) {
-            await supabase
-              .from('canvas_assignments')
-              .insert({
-                canvas_course_id: courseId,
-                canvas_assignment_id: assignment.id.toString(),
+          // Fire webhook
+          setTimeout(() => {
+            fetch('https://maxipad.app.n8n.cloud/webhook/generate-flashcards-from-canvas', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                study_set_id: canvasCourse.study_set_id,
                 assignment_name: assignment.name,
                 assignment_description: assignment.description,
-                due_date: assignment.due_at,
-                points_possible: assignment.points_possible,
-                flashcards_generated: false
+                due_date: assignment.due_at
               })
-
-            // Fire webhook
-            setTimeout(() => {
-              fetch('https://maxipad.app.n8n.cloud/webhook/generate-flashcards-from-canvas', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  study_set_id: canvasCourse.study_set_id,
-                  assignment_name: assignment.name,
-                  assignment_description: assignment.description,
-                  due_date: assignment.due_at
-                })
-              }).catch(err => console.error('Webhook error:', err))
-            }, 0)
-          }
+            }).catch(err => console.error('Webhook error:', err))
+          }, 0)
         }
       }
 

@@ -8,29 +8,36 @@ app = modal.App("podcast-video-generator")
 
 image = (
     modal.Image.debian_slim()
-    .pip_install("pillow>=10.0.0")
-    .pip_install("moviepy==1.0.3")
-    .pip_install("httpx==0.27.0")
-    .pip_install("fastapi[standard]")
+    .pip_install(
+        "pillow",
+        "moviepy",
+        "httpx",
+        "supabase",
+        "fastapi[standard]"
+    )
     .apt_install("ffmpeg")
 )
 
 @app.function(
-    secrets=[modal.Secret.from_name("unsplash-key")],
+    secrets=[
+        modal.Secret.from_name("unsplash-key"),
+        modal.Secret.from_name("supabase-creds")  # Add this
+    ],
     timeout=1800,
     image=image
 )
-@modal.fastapi_endpoint(method="POST")  # Changed from web_endpoint
+@modal.fastapi_endpoint(method="POST")
 def generate_video(data: dict):
     """
-    Receives: slides (JSON array) + audio_url
-    Returns: video as base64
+    Receives: slides (JSON array) + audio_url + podcast_id
+    Uploads video to Supabase, updates DB
+    Returns: lightweight response
     """
     import os
     import httpx
     from PIL import Image, ImageDraw, ImageFont
     from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
-    import base64
+    from supabase import create_client
     import textwrap
     
     print("Starting video generation")
@@ -38,15 +45,22 @@ def generate_video(data: dict):
     try:
         slides = data.get('slides', [])
         audio_url = data.get('audio_url')
+        podcast_id = data.get('podcast_id')
         
-        if not slides or not audio_url:
-            return {'success': False, 'error': 'slides and audio_url required'}
+        if not slides or not audio_url or not podcast_id:
+            return {'success': False, 'error': 'slides, audio_url, and podcast_id required'}
         
-        print(f"Processing {len(slides)} slides")
+        # Initialize Supabase
+        supabase = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SERVICE_KEY"]
+        )
+        
+        print(f"Processing {len(slides)} slides for podcast {podcast_id}")
         
         # Download audio
         print("Downloading audio...")
-        audio_response = httpx.get(audio_url)
+        audio_response = httpx.get(audio_url, timeout=60)
         audio_path = "/tmp/podcast_audio.mp3"
         with open(audio_path, "wb") as f:
             f.write(audio_response.content)
@@ -61,7 +75,10 @@ def generate_video(data: dict):
         for i, slide in enumerate(slides):
             print(f"Creating slide {i+1}/{len(slides)}")
             
-            bg_image = fetch_background_image(slide.get('image_search', 'abstract background'), os.environ.get('UNSPLASH_ACCESS_KEY'))
+            bg_image = fetch_background_image(
+                slide.get('image_search', 'abstract background'), 
+                os.environ.get('UNSPLASH_ACCESS_KEY')
+            )
             slide_img = render_slide(slide, bg_image)
             
             slide_path = f"/tmp/slide_{i+1}.png"
@@ -103,21 +120,50 @@ def generate_video(data: dict):
         
         print("Video rendered successfully")
         
-        # Return as base64
+        # Upload to Supabase Storage
+        print("Uploading to Supabase...")
         with open(output_path, 'rb') as f:
             video_bytes = f.read()
         
-        video_base64 = base64.b64encode(video_bytes).decode('utf-8')
+        video_filename = f"{podcast_id}_video.mp4"
+        
+        supabase.storage.from_('podcast-audio').upload(
+            video_filename,
+            video_bytes,
+            {'content-type': 'video/mp4', 'upsert': 'true'}
+        )
+        
+        video_url = supabase.storage.from_('podcast-audio').get_public_url(video_filename).data['publicUrl']
+        
+        print(f"Video uploaded: {video_url}")
+        
+        # Update podcast record
+        supabase.table('podcasts').update({
+            'video_url': video_url,
+            'video_status': 'ready'
+        }).eq('id', podcast_id).execute()
+        
+        print("Database updated!")
         
         return {
             'success': True,
-            'video_base64': video_base64,
-            'size_bytes': len(video_bytes),
+            'video_url': video_url,
+            'size_mb': len(video_bytes) / 1024 / 1024,
             'duration_seconds': total_audio_duration
         }
         
     except Exception as e:
         import traceback
+        print(f"Error: {str(e)}")
+        
+        # Update status to failed
+        try:
+            supabase.table('podcasts').update({
+                'video_status': 'failed'
+            }).eq('id', podcast_id).execute()
+        except:
+            pass
+        
         return {
             'success': False,
             'error': str(e),
@@ -151,7 +197,6 @@ def fetch_background_image(search_query: str, api_key: str):
     except Exception as e:
         print(f"Unsplash error: {e}")
     
-    # Fallback
     from PIL import Image
     return Image.new('RGB', (1920, 1080), (44, 62, 80))
 
@@ -163,13 +208,11 @@ def render_slide(slide: dict, background):
     
     img = background.copy()
     
-    # Dark overlay
     overlay = Image.new('RGBA', (1920, 1080), (0, 0, 0, 150))
     img.paste(overlay, (0, 0), overlay)
     
     draw = ImageDraw.Draw(img)
     
-    # Fonts
     try:
         title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
         text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
