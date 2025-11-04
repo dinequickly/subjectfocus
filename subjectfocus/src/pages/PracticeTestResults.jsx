@@ -59,26 +59,34 @@ export default function PracticeTestResults() {
 
       maxScore += points
 
-      if (userAnswer && correctAnswer) {
+      if (userAnswer) {
         if (question.question_type === 'multiple_choice' || question.question_type === 'true_false') {
+          // Auto-grade MC and T/F
           if (userAnswer === correctAnswer) {
             totalScore += points
           }
+        } else if (attemptData.ai_feedback?.[idx]) {
+          // Use AI grade for short answer/essay
+          totalScore += attemptData.ai_feedback[idx].score || 0
         }
-        // For short_answer and essay, we'd need AI grading or manual grading
-        // For now, we'll just show them as unanswered
       }
     })
 
-    // Update attempt with calculated score
-    await supabase
-      .from('practice_test_attempts')
-      .update({
-        score: totalScore,
-        max_score: maxScore,
-        completed_at: new Date().toISOString()
-      })
-      .eq('id', attemptData.id)
+    // Only update if scores aren't already set
+    if (attemptData.score === null || attemptData.max_score === null) {
+      await supabase
+        .from('practice_test_attempts')
+        .update({
+          score: totalScore,
+          max_score: maxScore,
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', attemptData.id)
+    } else {
+      // Use existing scores if already calculated
+      totalScore = attemptData.score
+      maxScore = attemptData.max_score
+    }
 
     setPracticeTest(testData)
     setAttempt({ ...attemptData, score: totalScore, max_score: maxScore })
@@ -233,8 +241,20 @@ export default function PracticeTestResults() {
           {questions.map((question, idx) => {
             const userAnswer = attempt.answers[idx]
             const correctAnswer = question.correct_answer
-            const isCorrect = userAnswer === correctAnswer
             const points = question.points || 5
+
+            // Determine score for this question
+            let earnedPoints = 0
+            let isCorrect = false
+
+            if (question.question_type === 'multiple_choice' || question.question_type === 'true_false') {
+              isCorrect = userAnswer === correctAnswer
+              earnedPoints = isCorrect ? points : 0
+            } else if (attempt.ai_feedback?.[idx]) {
+              // AI graded question
+              earnedPoints = attempt.ai_feedback[idx].score || 0
+              isCorrect = earnedPoints > 0
+            }
 
             return (
               <div key={idx} className="bg-white rounded-lg shadow-sm border p-6">
@@ -244,9 +264,17 @@ export default function PracticeTestResults() {
                       <span className="text-sm font-medium text-gray-500">
                         Question {idx + 1}
                       </span>
-                      {isCorrect ? (
+                      {!userAnswer ? (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded">
+                          Skipped (0 pts)
+                        </span>
+                      ) : earnedPoints === points ? (
                         <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
-                          ✅ Correct (+{points} pts)
+                          ✅ Full Credit (+{earnedPoints} pts)
+                        </span>
+                      ) : earnedPoints > 0 ? (
+                        <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">
+                          ⚠️ Partial Credit (+{earnedPoints}/{points} pts)
                         </span>
                       ) : (
                         <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded">
@@ -296,11 +324,25 @@ export default function PracticeTestResults() {
                     <div className="p-3 bg-gray-50 border rounded whitespace-pre-wrap">
                       {userAnswer || '(No answer provided)'}
                     </div>
-                    {question.sample_answer && (
+
+                    {/* AI Feedback */}
+                    {attempt.ai_feedback?.[idx] && (
+                      <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-medium text-purple-900">🤖 AI Grader Feedback</span>
+                          <span className="text-xs px-2 py-0.5 bg-purple-200 text-purple-800 rounded">
+                            {attempt.ai_feedback[idx].score}/{points} pts
+                          </span>
+                        </div>
+                        <div className="text-sm text-purple-900">{attempt.ai_feedback[idx].feedback}</div>
+                      </div>
+                    )}
+
+                    {question.correct_answer && (
                       <>
-                        <div className="text-sm font-medium mt-3 mb-2">Sample Answer:</div>
+                        <div className="text-sm font-medium mt-3 mb-2">Expected Answer:</div>
                         <div className="p-3 bg-green-50 border border-green-200 rounded whitespace-pre-wrap">
-                          {question.sample_answer}
+                          {question.correct_answer}
                         </div>
                       </>
                     )}

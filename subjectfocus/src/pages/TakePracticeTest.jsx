@@ -19,6 +19,10 @@ export default function TakePracticeTest() {
   const [timeRemaining, setTimeRemaining] = useState(null) // seconds
   const [testStartTime, setTestStartTime] = useState(null)
 
+  // Grading state
+  const [isGrading, setIsGrading] = useState(false)
+  const [gradingProgress, setGradingProgress] = useState({ current: 0, total: 0 })
+
   const timerRef = useRef(null)
 
   useEffect(() => {
@@ -117,6 +121,73 @@ export default function TakePracticeTest() {
     }
   }
 
+  async function gradeWithAI(question, userAnswer) {
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: `You are grading a ${question.question_type} question. Grade the student's answer and return ONLY a valid JSON object with no markdown formatting.
+
+Question: ${question.question_text}
+
+Expected Answer/Rubric: ${question.correct_answer}
+
+Student's Answer: ${userAnswer || '(No answer provided)'}
+
+Max Points: ${question.points}
+
+Instructions:
+- Award partial credit based on accuracy and completeness
+- Be fair but strict
+- For short answers: focus on key facts and concepts
+- For essays: evaluate argument quality, evidence, and organization
+
+Return ONLY this JSON format (no markdown, no code blocks):
+{
+  "score": <number between 0 and ${question.points}>,
+  "feedback": "<2-3 sentence explanation of the grade>"
+}`
+          }],
+          temperature: 0.3,
+          maxTokens: 300
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Grading API failed')
+      }
+
+      const data = await response.json()
+      const content = data.message || data.content || ''
+
+      // Try to parse JSON from response
+      let result
+      try {
+        // Remove markdown code blocks if present
+        const jsonStr = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+        result = JSON.parse(jsonStr)
+      } catch (e) {
+        console.error('Failed to parse AI response:', content)
+        // Fallback: give 0 points with error message
+        result = { score: 0, feedback: 'AI grading failed. Please review manually.' }
+      }
+
+      return {
+        score: Math.min(Math.max(0, result.score || 0), question.points),
+        feedback: result.feedback || 'No feedback provided'
+      }
+    } catch (error) {
+      console.error('Error grading with AI:', error)
+      return {
+        score: 0,
+        feedback: 'Grading error occurred. Please review manually.'
+      }
+    }
+  }
+
   async function handleSubmit(autoSubmit = false) {
     if (timerRef.current) {
       clearInterval(timerRef.current)
@@ -126,27 +197,84 @@ export default function TakePracticeTest() {
       return
     }
 
-    // Save test attempt
-    const { error } = await supabase
-      .from('practice_test_attempts')
-      .insert({
-        user_id: user.id,
-        practice_test_id: testId,
-        study_set_id: id,
-        answers,
-        flagged_questions: Array.from(flagged),
-        time_taken_seconds: testStartTime ? Math.floor((Date.now() - testStartTime) / 1000) : null,
-        status: 'completed'
+    setIsGrading(true)
+
+    try {
+      // Identify questions that need AI grading
+      const questionsToGrade = questions.filter((q, idx) =>
+        (q.question_type === 'short_answer' || q.question_type === 'essay') &&
+        answers[idx]
+      )
+
+      setGradingProgress({ current: 0, total: questionsToGrade.length })
+
+      // Grade short answer and essay questions with AI
+      const aiGrades = {}
+      for (let i = 0; i < questionsToGrade.length; i++) {
+        const question = questionsToGrade[i]
+        const questionIndex = questions.indexOf(question)
+        const userAnswer = answers[questionIndex]
+
+        console.log(`🤖 Grading question ${i + 1}/${questionsToGrade.length}...`)
+        setGradingProgress({ current: i + 1, total: questionsToGrade.length })
+
+        const gradeResult = await gradeWithAI(question, userAnswer)
+        aiGrades[questionIndex] = gradeResult
+      }
+
+      // Calculate scores
+      let totalScore = 0
+      let maxScore = 0
+
+      questions.forEach((question, idx) => {
+        const points = question.points || 5
+        maxScore += points
+
+        const userAnswer = answers[idx]
+        if (!userAnswer) return // Skip unanswered
+
+        if (question.question_type === 'multiple_choice' || question.question_type === 'true_false') {
+          // Auto-grade MC and T/F
+          if (userAnswer === question.correct_answer) {
+            totalScore += points
+          }
+        } else if (aiGrades[idx]) {
+          // Use AI grade for short answer/essay
+          totalScore += aiGrades[idx].score
+        }
       })
 
-    if (error) {
-      console.error('Error saving attempt:', error)
-      alert('Failed to submit test')
-      return
-    }
+      // Save test attempt with AI grades
+      const { error } = await supabase
+        .from('practice_test_attempts')
+        .insert({
+          user_id: user.id,
+          practice_test_id: testId,
+          study_set_id: id,
+          answers,
+          flagged_questions: Array.from(flagged),
+          time_taken_seconds: testStartTime ? Math.floor((Date.now() - testStartTime) / 1000) : null,
+          score: totalScore,
+          max_score: maxScore,
+          status: 'completed',
+          // Store AI feedback in answers as metadata
+          ai_feedback: aiGrades
+        })
 
-    // Navigate to results
-    navigate(`/study-set/${id}/practice-test/${testId}/results`)
+      if (error) {
+        console.error('Error saving attempt:', error)
+        alert('Failed to submit test')
+        setIsGrading(false)
+        return
+      }
+
+      // Navigate to results
+      navigate(`/study-set/${id}/practice-test/${testId}/results`)
+    } catch (error) {
+      console.error('Error during submission:', error)
+      alert('Failed to grade test')
+      setIsGrading(false)
+    }
   }
 
   function formatTime(seconds) {
@@ -162,6 +290,37 @@ export default function TakePracticeTest() {
 
   if (!practiceTest) {
     return <div className="p-6 text-red-600">Practice test not found</div>
+  }
+
+  // AI Grading overlay
+  if (isGrading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-lg shadow-sm border p-8 max-w-md text-center">
+          <div className="mb-4">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Grading Your Test</h2>
+          <p className="text-gray-600 mb-4">
+            AI is reviewing your short answer and essay responses...
+          </p>
+          {gradingProgress.total > 0 && (
+            <div className="mb-4">
+              <div className="text-sm text-gray-600 mb-2">
+                Grading question {gradingProgress.current} of {gradingProgress.total}
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(gradingProgress.current / gradingProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+          <p className="text-sm text-gray-500">This usually takes 5-15 seconds per question</p>
+        </div>
+      </div>
+    )
   }
 
   // Generating state
