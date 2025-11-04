@@ -19,6 +19,7 @@ import CanvasSync from './pages/CanvasSync'
 import CreatePracticeTest from './pages/CreatePracticeTest'
 import TakePracticeTest from './pages/TakePracticeTest'
 import PracticeTestResults from './pages/PracticeTestResults'
+import PracticeTestsList from './pages/PracticeTestsList'
 
 export default function App() {
   return (
@@ -129,6 +130,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <CanvasSync />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-tests"
+            element={
+              <ProtectedRoute>
+                <PracticeTestsList />
               </ProtectedRoute>
             }
           />

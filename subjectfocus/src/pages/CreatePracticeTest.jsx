@@ -166,30 +166,42 @@ const { data: practiceTest, error: insertError } = await supabase
 
 if (insertError) throw insertError
 
-      // Fire webhook to generate test (fire-and-forget)
-      setTimeout(() => {
-        fetch('https://maxipad.app.n8n.cloud/webhook/generate-practice-test', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            practice_test_id: practiceTest.id,
-            study_set_id: id,
-            test_title: testTitle,
-            source: sourceType,
-            source_guide_id: selectedGuide || null,
-            custom_topic: customTopic || null,
-            total_questions: totalQuestions,
-            distribution,
-            progressive_difficulty: progressiveDifficulty,
-            include_misconceptions: includeMisconceptions,
-            detailed_explanations: detailedExplanations,
-            mix_recall_application: mixRecallApplication,
-            time_limit_minutes: timeLimitEnabled ? timeLimitMinutes : null,
-            shuffle_questions: shuffleQuestions,
-            show_results: showResults
-          })
-        }).catch(err => console.error('Webhook error:', err))
-      }, 0)
+      // Fire webhook to generate test
+      const webhookPayload = {
+        practice_test_id: practiceTest.id,
+        study_set_id: id,
+        test_title: testTitle,
+        source: sourceType,
+        source_guide_id: selectedGuide || null,
+        custom_topic: customTopic || null,
+        total_questions: totalQuestions,
+        distribution,
+        progressive_difficulty: progressiveDifficulty,
+        include_misconceptions: includeMisconceptions,
+        detailed_explanations: detailedExplanations,
+        mix_recall_application: mixRecallApplication,
+        time_limit_minutes: timeLimitEnabled ? timeLimitMinutes : null,
+        shuffle_questions: shuffleQuestions,
+        show_results: showResults
+      }
+
+      console.log('🚀 Firing webhook to generate practice test:', webhookPayload)
+
+      fetch('https://maxipad.app.n8n.cloud/webhook/generate-practice-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(webhookPayload)
+      })
+        .then(response => {
+          console.log('✅ Webhook response status:', response.status)
+          return response.text()
+        })
+        .then(data => {
+          console.log('✅ Webhook response data:', data)
+        })
+        .catch(err => {
+          console.error('❌ Webhook error:', err)
+        })
 
       // Navigate to test waiting/loading page
       navigate(`/study-set/${id}/practice-test/${practiceTest.id}`)
@@ -211,12 +223,34 @@ if (insertError) throw insertError
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-3xl mx-auto p-6">
         <div className="mb-6">
-          <button
-            onClick={() => navigate(`/study-set/${id}`)}
-            className="text-gray-600 hover:text-gray-900 mb-4"
-          >
-            ← Back to Study Set
-          </button>
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => navigate(`/study-set/${id}`)}
+              className="text-gray-600 hover:text-gray-900"
+            >
+              ← Back to Study Set
+            </button>
+            <button
+              onClick={async () => {
+                console.log('🧪 Testing webhook...')
+                try {
+                  const response = await fetch('https://maxipad.app.n8n.cloud/webhook/generate-practice-test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ test: true, timestamp: new Date().toISOString() })
+                  })
+                  console.log('✅ Test webhook response:', response.status, await response.text())
+                  alert(`Webhook test: ${response.status} ${response.ok ? 'OK' : 'Failed'}`)
+                } catch (err) {
+                  console.error('❌ Test webhook error:', err)
+                  alert('Webhook test failed: ' + err.message)
+                }
+              }}
+              className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+            >
+              Test Webhook
+            </button>
+          </div>
           <h1 className="text-2xl font-bold">Generate Practice Test</h1>
         </div>
 
