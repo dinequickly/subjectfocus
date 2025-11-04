@@ -8,12 +8,10 @@ app = modal.App("podcast-video-generator")
 
 image = (
     modal.Image.debian_slim()
-    .pip_install(
-        "pillow>=10.0.0",
-        "moviepy==1.0.3",
-        "httpx==0.27.0"
-        "fastapi[standard]"
-    )
+    .pip_install("pillow>=10.0.0")
+    .pip_install("moviepy==1.0.3")
+    .pip_install("httpx==0.27.0")
+    .pip_install("fastapi[standard]")
     .apt_install("ffmpeg")
 )
 

@@ -183,15 +183,23 @@ Store frontend vars in `.env.local` at project root. For serverless, use platfor
 
 ### Podcasts
 - Users create podcasts linked to study sets
-- **Pre-recorded podcasts:**
-  - CreatePodcast → insert with status='generating' → fire webhook call to `/api/generate-podcast` → immediately navigate to PodcastPlayer
-  - PodcastPlayer polls every 10 seconds until status='ready' and audio_url is available
-- **Live-interactive podcasts:**
-  - CreatePodcast → insert with status='generating' → navigate immediately → fire webhook call to `https://maxipad.app.n8n.cloud/webhook/generate-interactive-podcast`
-  - Webhook generates conversational guide/script using LLM (takes ~4 seconds)
-  - PodcastPlayer polls every 3 seconds until status='ready'
-  - Once ready, automatically redirects to `/study-set/:id/podcasts/:podcastId/interactive`
-  - LiveInteractivePodcast component uses ElevenLabs Conversational AI (@elevenlabs/client)
+- **Three podcast types:**
+  1. **Pre-recorded podcasts** (listen-only):
+     - CreatePodcast → insert with status='generating' → fire webhook call to `/api/generate-podcast` → immediately navigate to PodcastPlayer
+     - PodcastPlayer polls every 10 seconds until status='ready' and audio_url is available
+  2. **Live-tutor podcasts** (Q&A session):
+     - CreatePodcast → insert with status='generating' → navigate immediately → fire webhook call to `https://maxipad.app.n8n.cloud/webhook/d5657317-09f9-4d0b-b14c-217275d6e97c`
+     - Webhook generates Q&A tutor script using LLM
+     - PodcastPlayer polls every 3 seconds until status='ready'
+     - Once ready, automatically redirects to `/study-set/:id/podcasts/:podcastId/interactive`
+     - Uses ElevenLabs Conversational AI for interactive Q&A
+  3. **Live-interactive podcasts** (discussion):
+     - CreatePodcast → insert with status='generating' → navigate immediately → fire webhook call to `https://maxipad.app.n8n.cloud/webhook/generate-interactive-podcast`
+     - Webhook generates conversational guide/script using LLM (takes ~4 seconds)
+     - PodcastPlayer polls every 3 seconds until status='ready'
+     - Once ready, automatically redirects to `/study-set/:id/podcasts/:podcastId/interactive`
+     - LiveInteractivePodcast component uses ElevenLabs Conversational AI (@elevenlabs/client)
+- **Interactive podcasts (live-tutor and live-interactive):**
   - Script format in DB: `{script: [{ speaker: 'sam', text: '...' }]}` or `[{ speaker: 'sam', text: '...' }]`
   - Frontend handles both nested and flat array structures
   - Script is formatted as text (`"sam: text\n\nsam: text..."`) and passed to ElevenLabs via `dynamicVariables`

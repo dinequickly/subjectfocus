@@ -16,9 +16,9 @@ export default function PodcastPlayer() {
     fetchPodcast()
   }, [podcastId])
 
-  // Redirect to interactive page for live-interactive podcasts once ready
+  // Redirect to interactive page for live-interactive and live-tutor podcasts once ready
   useEffect(() => {
-    if (podcast && podcast.type === 'live-interactive' && podcast.status === 'ready') {
+    if (podcast && (podcast.type === 'live-interactive' || podcast.type === 'live-tutor') && podcast.status === 'ready') {
       navigate(`/study-set/${id}/podcasts/${podcastId}/interactive`)
     }
   }, [podcast, id, podcastId, navigate])
@@ -27,8 +27,8 @@ export default function PodcastPlayer() {
   useEffect(() => {
     if (!podcast || podcast.status !== 'generating') return
 
-    // Use faster polling for interactive podcasts (3s), slower for pre-recorded (10s)
-    const pollIntervalMs = podcast.type === 'live-interactive' ? 3000 : 10000
+    // Use faster polling for interactive/tutor podcasts (3s), slower for pre-recorded (10s)
+    const pollIntervalMs = (podcast.type === 'live-interactive' || podcast.type === 'live-tutor') ? 3000 : 10000
 
     const pollInterval = setInterval(async () => {
       const { data } = await supabase
@@ -232,11 +232,15 @@ export default function PodcastPlayer() {
               <h2 className="text-xl font-medium mb-2">
                 {podcast.type === 'live-interactive'
                   ? 'Preparing Interactive Podcast...'
+                  : podcast.type === 'live-tutor'
+                  ? 'Preparing Live Tutor Session...'
                   : 'Generating Podcast...'}
               </h2>
               <p className="text-gray-600">
                 {podcast.type === 'live-interactive'
                   ? 'Creating a conversational guide for your interactive session. This will take just a moment.'
+                  : podcast.type === 'live-tutor'
+                  ? 'Setting up your personalized Q&A tutor session. This will take just a moment.'
                   : 'This may take a few moments. Your podcast is being created based on your preferences.'}
               </p>
               {podcast.user_goal && (

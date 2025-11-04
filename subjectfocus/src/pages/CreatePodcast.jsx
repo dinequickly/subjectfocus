@@ -56,6 +56,39 @@ export default function CreatePodcast() {
     }
   }
 
+  async function startLiveTutorGeneration(podcast) {
+    try {
+      // Fetch flashcards from the study set
+      const { data: flashcards } = await supabase
+        .from('flashcards')
+        .select('question, answer')
+        .eq('study_set_id', id)
+        .is('deleted_at', null)
+
+      // Call n8n webhook for live tutor
+      const response = await fetch('https://maxipad.app.n8n.cloud/webhook/d5657317-09f9-4d0b-b14c-217275d6e97c', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          podcast_id: podcast.id,
+          title: podcast.title,
+          user_goal: podcast.user_goal,
+          duration_minutes: podcast.duration_minutes,
+          flashcards: flashcards || []
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start live tutor podcast generation')
+      }
+
+      console.log('Live tutor podcast generation started')
+    } catch (err) {
+      console.error('Live tutor generation error:', err)
+      throw err
+    }
+  }
+
   async function startPreRecordedGeneration(podcast) {
     try {
       // Fetch flashcards from the study set
@@ -129,6 +162,11 @@ export default function CreatePodcast() {
           // Call n8n webhook to generate interactive script
           startInteractiveGeneration(podcast).catch(err => {
             console.error('Failed to start interactive generation:', err)
+          })
+        } else if (formData.type === 'live-tutor') {
+          // Call n8n webhook to generate live tutor script
+          startLiveTutorGeneration(podcast).catch(err => {
+            console.error('Failed to start live tutor generation:', err)
           })
         } else {
           // Call the pre-recorded podcast generation endpoint
