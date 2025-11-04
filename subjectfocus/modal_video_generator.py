@@ -6,39 +6,37 @@ from io import BytesIO
 
 app = modal.App("podcast-video-generator")
 
+# Use a pre-built image with multimedia libraries
 image = (
     modal.Image.debian_slim()
+    .apt_install("ffmpeg", "python3-pip")
     .pip_install(
-        "pillow",
-        "moviepy",
+        "Pillow",
         "httpx",
         "supabase",
-        "fastapi[standard]"
+        "fastapi[standard]",
+        "imageio[ffmpeg]",
+        "imageio-ffmpeg"
     )
-    .apt_install("ffmpeg")
 )
 
 @app.function(
     secrets=[
         modal.Secret.from_name("unsplash-key"),
-        modal.Secret.from_name("supabase-creds")  # Add this
+        modal.Secret.from_name("supabase-creds")
     ],
     timeout=1800,
     image=image
 )
 @modal.fastapi_endpoint(method="POST")
 def generate_video(data: dict):
-    """
-    Receives: slides (JSON array) + audio_url + podcast_id
-    Uploads video to Supabase, updates DB
-    Returns: lightweight response
-    """
+    """Generate video without moviepy - use ffmpeg directly"""
     import os
     import httpx
     from PIL import Image, ImageDraw, ImageFont
-    from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
-    from supabase import create_client
+    import subprocess
     import textwrap
+    from supabase import create_client
     
     print("Starting video generation")
     
@@ -50,140 +48,103 @@ def generate_video(data: dict):
         if not slides or not audio_url or not podcast_id:
             return {'success': False, 'error': 'slides, audio_url, and podcast_id required'}
         
-        # Initialize Supabase
         supabase = create_client(
             os.environ["SUPABASE_URL"],
             os.environ["SUPABASE_SERVICE_KEY"]
         )
         
-        print(f"Processing {len(slides)} slides for podcast {podcast_id}")
+        print(f"Processing {len(slides)} slides")
         
         # Download audio
-        print("Downloading audio...")
         audio_response = httpx.get(audio_url, timeout=60)
-        audio_path = "/tmp/podcast_audio.mp3"
+        audio_path = "/tmp/audio.mp3"
         with open(audio_path, "wb") as f:
             f.write(audio_response.content)
         
-        audio_clip = AudioFileClip(audio_path)
-        total_audio_duration = audio_clip.duration
+        # Get audio duration
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audio_path],
+            capture_output=True,
+            text=True
+        )
+        audio_duration = float(result.stdout.strip())
         
-        # Generate slide images
-        print("Generating slide images...")
-        slide_paths = []
+        # Generate slides
+        print("Generating slides...")
+        slide_files = []
+        total_slide_duration = sum(s.get('duration_seconds', 10) for s in slides)
+        duration_multiplier = audio_duration / total_slide_duration
         
         for i, slide in enumerate(slides):
-            print(f"Creating slide {i+1}/{len(slides)}")
+            bg = fetch_background_image(slide.get('image_search', 'abstract'), os.environ.get('UNSPLASH_ACCESS_KEY'))
+            slide_img = render_slide(slide, bg)
             
-            bg_image = fetch_background_image(
-                slide.get('image_search', 'abstract background'), 
-                os.environ.get('UNSPLASH_ACCESS_KEY')
-            )
-            slide_img = render_slide(slide, bg_image)
+            path = f"/tmp/slide_{i}.png"
+            slide_img.save(path)
             
-            slide_path = f"/tmp/slide_{i+1}.png"
-            slide_img.save(slide_path)
-            slide_paths.append((slide_path, slide.get('duration_seconds', 10)))
+            duration = slide.get('duration_seconds', 10) * duration_multiplier
+            slide_files.append((path, duration))
         
-        # Adjust durations
-        print("Assembling video...")
-        total_slide_duration = sum(d for _, d in slide_paths)
-        duration_multiplier = total_audio_duration / total_slide_duration
+        # Create video with ffmpeg
+        print("Creating video with ffmpeg...")
         
-        clips = []
-        current_time = 0
+        # Create concat file
+        with open('/tmp/concat.txt', 'w') as f:
+            for path, duration in slide_files:
+                f.write(f"file '{path}'\n")
+                f.write(f"duration {duration}\n")
+            # Repeat last slide
+            f.write(f"file '{slide_files[-1][0]}'\n")
         
-        for slide_path, base_duration in slide_paths:
-            adjusted_duration = base_duration * duration_multiplier
-            
-            slide_clip = (
-                ImageClip(slide_path)
-                .set_duration(adjusted_duration)
-                .set_start(current_time)
-            )
-            clips.append(slide_clip)
-            current_time += adjusted_duration
+        # Run ffmpeg
+        subprocess.run([
+            'ffmpeg', '-f', 'concat', '-safe', '0', '-i', '/tmp/concat.txt',
+            '-i', audio_path,
+            '-c:v', 'libx264', '-c:a', 'aac',
+            '-shortest', '-y', '/tmp/output.mp4'
+        ], check=True)
         
-        # Render
-        video = concatenate_videoclips(clips, method="compose")
-        final_video = video.set_audio(audio_clip)
+        print("Video created!")
         
-        output_path = "/tmp/podcast_video.mp4"
-        final_video.write_videofile(
-            output_path,
-            fps=24,
-            codec='libx264',
-            audio_codec='aac',
-            temp_audiofile='/tmp/temp-audio.m4a',
-            remove_temp=True
-        )
-        
-        print("Video rendered successfully")
-        
-        # Upload to Supabase Storage
-        print("Uploading to Supabase...")
-        with open(output_path, 'rb') as f:
+        # Upload to Supabase
+        with open('/tmp/output.mp4', 'rb') as f:
             video_bytes = f.read()
         
-        video_filename = f"{podcast_id}_video.mp4"
-        
+        filename = f"{podcast_id}_video.mp4"
         supabase.storage.from_('podcast-audio').upload(
-            video_filename,
+            filename,
             video_bytes,
             {'content-type': 'video/mp4', 'upsert': 'true'}
         )
         
-        video_url = supabase.storage.from_('podcast-audio').get_public_url(video_filename).data['publicUrl']
+        video_url = supabase.storage.from_('podcast-audio').get_public_url(filename)
         
-        print(f"Video uploaded: {video_url}")
-        
-        # Update podcast record
+        # Update DB
         supabase.table('podcasts').update({
             'video_url': video_url,
             'video_status': 'ready'
         }).eq('id', podcast_id).execute()
         
-        print("Database updated!")
-        
         return {
             'success': True,
             'video_url': video_url,
-            'size_mb': len(video_bytes) / 1024 / 1024,
-            'duration_seconds': total_audio_duration
+            'size_mb': round(len(video_bytes) / 1024 / 1024, 2)
         }
         
     except Exception as e:
         import traceback
-        print(f"Error: {str(e)}")
-        
-        # Update status to failed
-        try:
-            supabase.table('podcasts').update({
-                'video_status': 'failed'
-            }).eq('id', podcast_id).execute()
-        except:
-            pass
-        
-        return {
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }
+        print(traceback.format_exc())
+        return {'success': False, 'error': str(e)}
 
 
 def fetch_background_image(search_query: str, api_key: str):
-    """Fetch background image from Unsplash"""
     import httpx
     from PIL import Image
     
     try:
         response = httpx.get(
             "https://api.unsplash.com/search/photos",
-            params={
-                "query": search_query,
-                "orientation": "landscape",
-                "per_page": 1
-            },
+            params={"query": search_query, "orientation": "landscape", "per_page": 1},
             headers={"Authorization": f"Client-ID {api_key}"},
             timeout=10
         )
@@ -194,20 +155,18 @@ def fetch_background_image(search_query: str, api_key: str):
                 img_url = data['results'][0]['urls']['regular']
                 img_response = httpx.get(img_url, timeout=10)
                 return Image.open(BytesIO(img_response.content)).resize((1920, 1080))
-    except Exception as e:
-        print(f"Unsplash error: {e}")
+    except:
+        pass
     
     from PIL import Image
     return Image.new('RGB', (1920, 1080), (44, 62, 80))
 
 
 def render_slide(slide: dict, background):
-    """Render slide with text overlay"""
     from PIL import Image, ImageDraw, ImageFont
     import textwrap
     
     img = background.copy()
-    
     overlay = Image.new('RGBA', (1920, 1080), (0, 0, 0, 150))
     img.paste(overlay, (0, 0), overlay)
     
@@ -216,69 +175,35 @@ def render_slide(slide: dict, background):
     try:
         title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
         text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
-        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
     except:
         title_font = ImageFont.load_default()
         text_font = ImageFont.load_default()
-        small_font = ImageFont.load_default()
     
     slide_type = slide.get('slide_type', 'bullets')
     
     if slide_type == 'title':
         title = slide.get('title', '')
         bbox = draw.textbbox((0, 0), title, font=title_font)
-        title_width = bbox[2] - bbox[0]
-        draw.text(
-            ((1920 - title_width) // 2, 400),
-            title,
-            fill='white',
-            font=title_font
-        )
+        w = bbox[2] - bbox[0]
+        draw.text(((1920 - w) // 2, 400), title, fill='white', font=title_font)
         
         if slide.get('subtitle'):
             subtitle = slide['subtitle']
             bbox = draw.textbbox((0, 0), subtitle, font=text_font)
-            subtitle_width = bbox[2] - bbox[0]
-            draw.text(
-                ((1920 - subtitle_width) // 2, 550),
-                subtitle,
-                fill='#ECF0F1',
-                font=text_font
-            )
+            w = bbox[2] - bbox[0]
+            draw.text(((1920 - w) // 2, 550), subtitle, fill='#ECF0F1', font=text_font)
     
     elif slide_type == 'bullets':
-        y_position = 200
-        draw.text((100, y_position), slide.get('title', ''), fill='white', font=title_font)
-        y_position += 150
+        y = 200
+        draw.text((100, y), slide.get('title', ''), fill='white', font=title_font)
+        y += 150
         
         for point in slide.get('content', []):
             wrapped = textwrap.fill(point, width=60)
-            draw.text((150, y_position), f"• {wrapped}", fill='#ECF0F1', font=text_font)
-            y_position += 100
-    
-    elif slide_type == 'quote':
-        quote_text = f'"{slide.get("content", "")}"'
-        wrapped = textwrap.fill(quote_text, width=40)
-        lines = wrapped.split('\n')
-        
-        y_start = 400
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=text_font)
-            line_width = bbox[2] - bbox[0]
-            draw.text(
-                ((1920 - line_width) // 2, y_start),
-                line,
-                fill='white',
-                font=text_font
-            )
-            y_start += 80
+            draw.text((150, y), f"• {wrapped}", fill='#ECF0F1', font=text_font)
+            y += 100
     
     else:
         draw.text((100, 200), slide.get('title', ''), fill='white', font=title_font)
-        
-        if slide.get('content'):
-            content = slide['content'] if isinstance(slide['content'], str) else slide['content'][0]
-            wrapped = textwrap.fill(content, width=80)
-            draw.text((100, 900), wrapped, fill='#ECF0F1', font=small_font)
     
     return img

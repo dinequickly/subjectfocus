@@ -16,6 +16,9 @@ import PodcastPlayer from './pages/PodcastPlayer'
 import LiveInteractivePodcast from './pages/LiveInteractivePodcast'
 import LiveTutorSession from './pages/LiveTutorSession'
 import CanvasSync from './pages/CanvasSync'
+import CreatePracticeTest from './pages/CreatePracticeTest'
+import TakePracticeTest from './pages/TakePracticeTest'
+import PracticeTestResults from './pages/PracticeTestResults'
 
 export default function App() {
   return (
@@ -126,6 +129,30 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <CanvasSync />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-test/create"
+            element={
+              <ProtectedRoute>
+                <CreatePracticeTest />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-test/:testId"
+            element={
+              <ProtectedRoute>
+                <TakePracticeTest />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/practice-test/:testId/results"
+            element={
+              <ProtectedRoute>
+                <PracticeTestResults />
               </ProtectedRoute>
             }
           />
