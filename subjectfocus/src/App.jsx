@@ -5,7 +5,9 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import CreateStudySet from './pages/CreateStudySet'
-import StudySetDetail from './pages/StudySetDetail'
+import StudySetOverview from './pages/StudySetOverview'
+import FlashcardSetsList from './pages/FlashcardSetsList'
+import FlashcardSetDetail from './pages/FlashcardSetDetail'
 import PracticeMode from './pages/PracticeMode'
 import StudyGuidesList from './pages/StudyGuidesList'
 import StudyGuideView from './pages/StudyGuideView'
@@ -49,7 +51,31 @@ export default function App() {
             path="/study-set/:id"
             element={
               <ProtectedRoute>
-                <StudySetDetail />
+                <StudySetOverview />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/flashcard-sets"
+            element={
+              <ProtectedRoute>
+                <FlashcardSetsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/flashcard-set/:setId"
+            element={
+              <ProtectedRoute>
+                <FlashcardSetDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:id/flashcard-set/:setId/practice"
+            element={
+              <ProtectedRoute>
+                <PracticeMode />
               </ProtectedRoute>
             }
           />

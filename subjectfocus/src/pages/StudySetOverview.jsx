@@ -14,8 +14,6 @@ export default function StudySetOverview() {
     study_guides: 0,
     podcasts: 0,
     practice_tests: 0,
-    mind_maps: 0,
-    briefs: 0,
     total_flashcards: 0
   })
   const [loading, setLoading] = useState(true)
@@ -43,7 +41,7 @@ export default function StudySetOverview() {
     setStudySet(setData)
 
     // Fetch counts for all content types
-    const [flashcardSets, studyGuides, podcasts, practiceTests, mindMaps, briefs] = await Promise.all([
+    const [flashcardSets, studyGuides, podcasts, practiceTests] = await Promise.all([
       supabase
         .from('flashcard_sets')
         .select('id', { count: 'exact', head: true })
@@ -61,17 +59,7 @@ export default function StudySetOverview() {
         .from('generated_content')
         .select('id', { count: 'exact', head: true })
         .eq('study_set_id', id)
-        .eq('content_type', 'practice_test'),
-      supabase
-        .from('generated_content')
-        .select('id', { count: 'exact', head: true })
-        .eq('study_set_id', id)
-        .eq('content_type', 'mindmap'),
-      supabase
-        .from('generated_content')
-        .select('id', { count: 'exact', head: true })
-        .eq('study_set_id', id)
-        .eq('content_type', 'brief')
+        .eq('content_type', 'practice_test')
     ])
 
     setCounts({
@@ -79,8 +67,6 @@ export default function StudySetOverview() {
       study_guides: studyGuides.count || 0,
       podcasts: podcasts.count || 0,
       practice_tests: practiceTests.count || 0,
-      mind_maps: mindMaps.count || 0,
-      briefs: briefs.count || 0,
       total_flashcards: setData.total_cards || 0
     })
 
@@ -124,20 +110,6 @@ export default function StudySetOverview() {
       count: counts.practice_tests,
       route: `/study-set/${id}/practice-tests`,
       color: 'green'
-    },
-    {
-      title: 'Mind Maps',
-      icon: '🧠',
-      count: counts.mind_maps,
-      route: `/study-set/${id}/mindmaps`,
-      color: 'pink'
-    },
-    {
-      title: 'Briefs',
-      icon: '📄',
-      count: counts.briefs,
-      route: `/study-set/${id}/briefs`,
-      color: 'yellow'
     }
   ]
 
