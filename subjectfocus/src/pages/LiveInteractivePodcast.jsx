@@ -39,8 +39,14 @@ export default function LiveInteractivePodcast() {
   }
 
   function formatScript(script) {
-    if (!script || !Array.isArray(script)) return ''
-    return script
+    if (!script) return ''
+
+    // Handle nested structure from n8n: {script: [...]} vs [...]
+    const scriptArray = Array.isArray(script) ? script : script.script
+
+    if (!scriptArray || !Array.isArray(scriptArray)) return ''
+
+    return scriptArray
       .map(item => `${item.speaker}: ${item.text}`)
       .join('\n\n')
   }
