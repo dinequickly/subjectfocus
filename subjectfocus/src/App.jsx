@@ -13,6 +13,8 @@ import StudyGuideEditor from './pages/StudyGuideEditor'
 import PodcastsList from './pages/PodcastsList'
 import CreatePodcast from './pages/CreatePodcast'
 import PodcastPlayer from './pages/PodcastPlayer'
+import LiveInteractivePodcast from './pages/LiveInteractivePodcast'
+import LiveTutorSession from './pages/LiveTutorSession'
 
 export default function App() {
   return (
@@ -99,6 +101,22 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <PodcastPlayer />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:setId/podcasts/:podcastId/interactive"
+            element={
+              <ProtectedRoute>
+                <LiveInteractivePodcast />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-set/:setId/podcasts/:podcastId/tutor-session"
+            element={
+              <ProtectedRoute>
+                <LiveTutorSession />
               </ProtectedRoute>
             }
           />

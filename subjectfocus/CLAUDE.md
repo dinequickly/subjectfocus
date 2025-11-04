@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-SubjectFocus is a study application built with Vite + React + Supabase. It enables students to create flashcard study sets with AI-powered assistance from OpenAI. The app features authentication, study set management, AI flashcard generation, and spaced repetition learning.
+SubjectFocus is a study application built with Vite + React + Supabase. It enables students to create flashcard study sets with AI-powered assistance from OpenAI. The app features authentication, study set management, AI flashcard generation, spaced repetition learning, study guides, and interactive podcasts.
 
 ## Development Commands
 
@@ -46,17 +46,31 @@ supabase db lint                                  # Check for invalid references
 - **Auth:** Supabase Auth with session persistence via `useAuth` hook
 - **State:** React hooks (no global state management)
 - **Styling:** Tailwind CSS
+- **Rich Text:** TipTap editor for study guides
 
 ### Key Routes
 - `/login`, `/signup` - Authentication
 - `/` - Dashboard (lists user's study sets)
 - `/study-set/new` - Create new study set with inline card creation
 - `/study-set/:id` - Study set detail page with right sidebar AI chat
+- `/study-set/:id/practice` - Practice mode for flashcards
+- `/study-set/:id/guides` - Study guides list for a study set
+- `/study-set/:id/guides/:guideId` - View study guide
+- `/study-set/:id/guides/:guideId/edit` - Edit study guide with TipTap editor
+- `/study-set/:id/podcasts` - Podcasts list for a study set
+- `/study-set/:id/podcasts/create` - Create new podcast
+- `/study-set/:id/podcasts/:podcastId` - Podcast player (handles pre-recorded audio and static video)
+- `/study-set/:setId/podcasts/:podcastId/interactive` - Live interactive podcast with ElevenLabs voice chat
+- `/study-set/:setId/podcasts/:podcastId/tutor-session` - Live tutor session with split screen (slides + voice chat)
 
 ### Components
 - `ProtectedRoute` - Wraps authenticated routes, redirects to `/login`
 - `NavBar` - Top navigation with user menu
-- `AIChatPanel` - Right sidebar for AI flashcard generation
+- `AIChatPanel` - Right sidebar for AI flashcard generation (mode: 'flashcard')
+- `StudyGuideAIPanel` - Right sidebar for AI study guide generation (mode: 'study_guide')
+- `LiveInteractivePodcast` - Real-time conversational podcast using ElevenLabs Conversational AI
+- `LiveTutorSession` - Split-screen tutor session (left: slides via SlideViewer, right: ElevenLabs voice interface)
+- `SlideViewer` - Displays slides with metadata (title, notes) and fade transitions, listens to Supabase Realtime for updates
 
 ### Backend Architecture
 The app uses **serverless functions** deployed on Netlify OR Vercel (not both) to handle AI requests:
@@ -67,16 +81,28 @@ The app uses **serverless functions** deployed on Netlify OR Vercel (not both) t
    - Both call the shared logic in `server/openaiChat.js`
 
 2. **AI Chat Flow (`server/openaiChat.js`):**
-   - Receives messages, context, temperature, user_id
-   - Formats system prompt with study set context (title, subject, existing cards)
-   - Calls OpenAI API with structured JSON schema for flashcard responses
-   - **Auto-saves flashcards:** If `SUPABASE_SERVICE_ROLE_KEY` is set, function directly inserts flashcards into `public.flashcards` table using service role client
-   - Returns: `{ message, flashcards }` where flashcards include success/error status
+   - Receives messages, context, temperature, user_id, and optional maxTokens
+   - Context object can include `mode: 'study_guide'` or default to flashcard mode
+   - **Flashcard mode:**
+     - Formats system prompt with study set context (title, subject, existing cards)
+     - Calls OpenAI API with structured JSON schema: `{ message, flashcards: [{ term, definition }] }`
+     - **Auto-saves flashcards:** If `SUPABASE_SERVICE_ROLE_KEY` is set, function directly inserts flashcards into `public.flashcards` table using service role client
+     - Returns: `{ message, flashcards }` where flashcards include success/error status
+   - **Study guide mode:**
+     - Uses `STUDY_GUIDE_SYSTEM_PROMPT` with current guide content in context
+     - Enforces strict JSON schema: `{ message, content }` where content is HTML
+     - Content field has minLength: 200 and is required
+     - Returns HTML-formatted study guide sections to be inserted into TipTap editor
 
-3. **Frontend (`AIChatPanel`):**
-   - Sends POST to `/api/chat` with messages array and context object
-   - Context includes: `study_set_id`, `title`, `subject`, `description`, `cards` (last 10)
-   - Receives flashcards that may already be persisted (check for `id` field)
+3. **Frontend AI Panels:**
+   - `AIChatPanel` (flashcards):
+     - Sends POST to `/api/chat` with messages array and context object
+     - Context includes: `study_set_id`, `title`, `subject`, `description`, `cards` (last 10)
+     - Receives flashcards that may already be persisted (check for `id` field)
+   - `StudyGuideAIPanel` (study guides):
+     - Sends POST to `/api/chat` with context.mode = 'study_guide'
+     - Context includes: `study_set_id`, `title`, `subject`, `currentContent` (truncated to 15000 chars)
+     - Receives HTML content to insert into the TipTap editor
 
 ### Database Schema (Supabase)
 
@@ -86,16 +112,26 @@ The app uses **serverless functions** deployed on Netlify OR Vercel (not both) t
   - Has `total_cards` auto-maintained by trigger
   - Tracks `subject_area`, `color_theme`, `is_public`
 - `flashcards` - Cards within study sets
-  - Fields: `question`, `answer`, `hint`, `explanation`, `difficulty`, `starred`
+  - Fields: `question`, `answer`, `hint`, `explanation`, `difficulty_level`, `starred`
   - Soft delete via `deleted_at`
   - Trigger updates parent `study_sets.total_cards` on insert/delete
 - `flashcard_progress` - Spaced repetition tracking per user/card
   - Fields: `times_seen`, `times_correct`, `next_review_date`, `mastery_level`
 - `learning_sessions` - Session history with metrics
-- `generated_content` - AI-generated content (study guides, quizzes)
+- `generated_content` - AI-generated content (study guides, quizzes, podcasts, etc.)
+  - `content_type` enum: 'podcast', 'video', 'newsletter', 'study_guide', 'practice_test', 'brief', 'mindmap', 'quiz', 'flashcard_set'
+  - `status` enum: 'pending', 'generating', 'completed', 'failed'
+- `podcasts` - Podcast episodes (separate from generated_content)
+  - Fields: `study_set_id`, `user_id`, `title`, `type`, `duration_minutes`, `user_goal`, `status`, `audio_url`, `video_url`, `script`, `slides`, `current_slide_number`
+  - Status values: 'generating', 'ready', 'failed'
+  - Type values: 'pre-recorded', 'live-interactive', 'live-tutor', 'static-video'
+  - `video_url` - URL to video file for static-video type
+  - `slides` - JSONB array of slide objects: `[{url, order, title, notes}]`
+  - `current_slide_number` - Current slide index for live-tutor (updated by ElevenLabs agent via webhook)
 - `calendar_events` - Study schedule events
 - `tags`, `study_set_tags` - Tagging system
 - `study_set_collaborators` - Sharing with role-based access
+- `canvas_integrations`, `canvas_courses` - Canvas LMS integration
 
 **Important Views:**
 - `cards_due_for_review` - Joins flashcards + progress where `next_review_date <= now()`
@@ -115,14 +151,15 @@ The app uses **serverless functions** deployed on Netlify OR Vercel (not both) t
 
 ### Frontend (Vite)
 ```bash
-VITE_SUPABASE_URL=          # Supabase project URL
-VITE_SUPABASE_ANON_KEY=     # Supabase anon/public key
+VITE_SUPABASE_URL=              # Supabase project URL
+VITE_SUPABASE_ANON_KEY=         # Supabase anon/public key
+VITE_INTERACTIVE_AGENT_ID=      # ElevenLabs agent ID for interactive podcasts
 ```
 
 ### Backend (Serverless Functions)
 ```bash
 OPENAI_API_KEY=                    # Required for AI chat
-OPENAI_ASSISTANT_MODEL=            # Optional (defaults to gpt-5-mini-2025-08-07)
+OPENAI_ASSISTANT_MODEL=            # Optional (defaults to gpt-5-mini)
 SUPABASE_URL=                      # Required for auto-saving flashcards
 SUPABASE_SERVICE_ROLE_KEY=         # Required for auto-saving (bypasses RLS)
 ```
@@ -137,11 +174,73 @@ Store frontend vars in `.env.local` at project root. For serverless, use platfor
 - Server-side persistence: flashcards are auto-inserted into DB by serverless function
 - Frontend should check if flashcards have `id` field (already saved) vs `error` field (save failed)
 
+### AI Study Guide Generation
+- Uses same `/api/chat` endpoint with `context.mode = 'study_guide'`
+- Strict JSON schema enforces `{ message, content }` where content is HTML (min 200 chars)
+- Context includes `currentContent` (last 15000 chars of existing guide)
+- Model returns HTML that gets inserted into TipTap editor
+- Study guides are stored separately in database (exact table TBD from schema)
+
 ### Spaced Repetition (Minimal Implementation)
 - Review flow fetches from `cards_due_for_review` view
 - On review: update `flashcard_progress` with results
 - Simple scheduling: correct → +1 day, incorrect → +10 minutes
 - Tracks: `mastery_level` (new/learning/reviewing/mastered), `interval_days`, `repetitions`
+
+### Podcasts
+- Users create podcasts linked to study sets
+- **Four podcast types:**
+
+  1. **Pre-recorded (audio-only):**
+     - CreatePodcast → insert with status='generating' → navigate immediately → fire webhook to `/api/generate-podcast`
+     - PodcastPlayer polls every 10 seconds until status='ready' and audio_url is available
+     - Displays audio player in PodcastPlayer component
+
+  2. **Live-interactive (discussion):**
+     - CreatePodcast → insert with status='generating' → navigate immediately → fire webhook to `https://maxipad.app.n8n.cloud/webhook/generate-interactive-podcast`
+     - Webhook generates conversational guide/script using LLM (takes ~4 seconds)
+     - PodcastPlayer polls every 3 seconds until status='ready'
+     - Once ready, automatically redirects to `/study-set/:id/podcasts/:podcastId/interactive`
+     - LiveInteractivePodcast component uses ElevenLabs Conversational AI (@elevenlabs/client)
+     - Voice-only interface with status indicators (speaking/listening modes)
+
+  3. **Live-tutor (Q&A with slides):**
+     - CreatePodcast → insert with status='generating' → navigate immediately → fire webhook to `https://maxipad.app.n8n.cloud/webhook/9bba5bd1-ffec-42fb-b47e-2bb937c421ef`
+     - Webhook generates script and slides using LLM
+     - PodcastPlayer polls every 3 seconds until status='ready'
+     - Once ready, automatically redirects to `/study-set/:setId/podcasts/:podcastId/tutor-session`
+     - LiveTutorSession component: split-screen layout (grid-cols-2)
+       - Left: SlideViewer displaying slides with fade transitions
+       - Right: ElevenLabs voice interface
+     - Supabase Realtime subscription listens for current_slide_number updates
+     - ElevenLabs agent has "Change Slide" tool that calls webhook: `https://maxipad.app.n8n.cloud/webhook/b580708f-48db-4e93-aa0e-f9cbb4880f75`
+     - Webhook updates current_slide_number in Supabase → Realtime pushes to frontend → SlideViewer updates
+     - Slides stored as JSONB: `[{url, order, title, notes}]`
+
+  4. **Static-video (YouTube-style):**
+     - CreatePodcast → insert with status='generating' → navigate immediately → fire webhook to `https://maxipad.app.n8n.cloud/webhook/d5657317-09f9-4d0b-b14c-217275d6e97c`
+     - Webhook generates video file using LLM
+     - PodcastPlayer polls every 10 seconds until status='ready' and video_url is available
+     - Displays video player in PodcastPlayer component
+
+- **ElevenLabs Integration (live-interactive and live-tutor):**
+  - Script format in DB: `{script: [{ speaker: 'sam', text: '...' }]}` or `[{ speaker: 'sam', text: '...' }]`
+  - Frontend handles both nested and flat array structures via `formatScript()` helper
+  - Script is formatted as text (`"sam: text\n\nsam: text..."`) and passed to ElevenLabs via `dynamicVariables`
+  - Dynamic variables passed at session start:
+    - `topic`: user_goal or podcast title
+    - `script`: formatted script text
+    - `Current_Slide_Number` (live-tutor only): current slide index as string
+  - Agent ID stored in `VITE_INTERACTIVE_AGENT_ID` env var
+  - onModeChange callback tracks 'speaking' vs 'listening' states
+
+- **Technical Details:**
+  - Webhook calls use "fire and forget" pattern (wrapped in setTimeout) to prevent blocking navigation
+  - Polling intervals: 3s for interactive types (fast generation), 10s for pre-recorded/video (slow generation)
+  - Script stored as JSONB in `script` field
+  - Slides stored as JSONB in `slides` field
+  - current_slide_number updated via webhook from ElevenLabs agent tool
+  - Supabase Realtime channel: `podcast-{podcastId}` listens for UPDATE events on podcasts table
 
 ### Database Triggers
 - `update_study_set_card_count()` - Maintains `total_cards` count when flashcards inserted/deleted
@@ -173,7 +272,8 @@ Store frontend vars in `.env.local` at project root. For serverless, use platfor
 5. Commit only reviewed migrations (delete scratch files)
 
 ### Migration Files
-- `supabase/migrations/00000000000000_initial_schema.sql` - Base schema
+- `supabase/migrations/00000000000000_initial_schema.sql` - Empty placeholder
+- `supabase/migrations/initial_schema.sql` - Actual base schema (1223 lines)
 - `supabase/migrations/` - Timestamped migration files
 - Use `supabase migration new "description"` to scaffold new migrations
 

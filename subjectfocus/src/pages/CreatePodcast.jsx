@@ -23,6 +23,139 @@ export default function CreatePodcast() {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
+  async function startInteractiveGeneration(podcast) {
+    try {
+      // Fetch flashcards from the study set
+      const { data: flashcards } = await supabase
+        .from('flashcards')
+        .select('question, answer')
+        .eq('study_set_id', id)
+        .is('deleted_at', null)
+
+      // Call n8n webhook to generate interactive script
+      const response = await fetch('https://maxipad.app.n8n.cloud/webhook/generate-interactive-podcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          podcast_id: podcast.id,
+          title: podcast.title,
+          user_goal: podcast.user_goal,
+          duration_minutes: podcast.duration_minutes,
+          flashcards: flashcards || []
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start interactive podcast generation')
+      }
+
+      console.log('Interactive podcast generation started')
+    } catch (err) {
+      console.error('Interactive generation error:', err)
+      throw err
+    }
+  }
+
+  async function startLiveTutorGeneration(podcast) {
+    try {
+      // Fetch flashcards from the study set
+      const { data: flashcards } = await supabase
+        .from('flashcards')
+        .select('question, answer')
+        .eq('study_set_id', id)
+        .is('deleted_at', null)
+
+      // Call n8n webhook for live tutor
+      const response = await fetch('https://maxipad.app.n8n.cloud/webhook/9bba5bd1-ffec-42fb-b47e-2bb937c421ef', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          podcast_id: podcast.id,
+          title: podcast.title,
+          user_goal: podcast.user_goal,
+          duration_minutes: podcast.duration_minutes,
+          flashcards: flashcards || []
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start live tutor podcast generation')
+      }
+
+      console.log('Live tutor podcast generation started')
+    } catch (err) {
+      console.error('Live tutor generation error:', err)
+      throw err
+    }
+  }
+
+  async function startStaticVideoGeneration(podcast) {
+    try {
+      // Fetch flashcards from the study set
+      const { data: flashcards } = await supabase
+        .from('flashcards')
+        .select('question, answer')
+        .eq('study_set_id', id)
+        .is('deleted_at', null)
+
+      // Call n8n webhook for static video
+      const response = await fetch('https://maxipad.app.n8n.cloud/webhook/d5657317-09f9-4d0b-b14c-217275d6e97c', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          podcast_id: podcast.id,
+          title: podcast.title,
+          user_goal: podcast.user_goal,
+          duration_minutes: podcast.duration_minutes,
+          flashcards: flashcards || []
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start static video generation')
+      }
+
+      console.log('Static video generation started')
+    } catch (err) {
+      console.error('Static video generation error:', err)
+      throw err
+    }
+  }
+
+  async function startPreRecordedGeneration(podcast) {
+    try {
+      // Fetch flashcards from the study set
+      const { data: flashcards } = await supabase
+        .from('flashcards')
+        .select('question, answer')
+        .eq('study_set_id', id)
+        .is('deleted_at', null)
+
+      // Call API route which forwards to n8n
+      const response = await fetch('/api/generate-podcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          podcastId: podcast.id,
+          title: podcast.title,
+          type: podcast.type,
+          durationMinutes: podcast.duration_minutes,
+          userGoal: podcast.user_goal,
+          flashcards: flashcards || []
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start pre-recorded podcast generation')
+      }
+
+      console.log('Pre-recorded podcast generation started')
+    } catch (err) {
+      console.error('Pre-recorded generation error:', err)
+      throw err
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
 
@@ -35,7 +168,7 @@ export default function CreatePodcast() {
     setError('')
 
     try {
-      // Create podcast record
+      // Create podcast record with status 'generating'
       const { data: podcast, error: insertErr } = await supabase
         .from('podcasts')
         .insert({
@@ -52,8 +185,34 @@ export default function CreatePodcast() {
 
       if (insertErr) throw insertErr
 
-      // Navigate to the player page (where generation will happen)
+      // Navigate immediately to the player page (where polling will happen)
       navigate(`/study-set/${id}/podcasts/${podcast.id}`)
+
+      // Start generation based on podcast type (fire and forget - don't await)
+      // Run in setTimeout to ensure navigation happens first
+      setTimeout(() => {
+        if (formData.type === 'live-interactive') {
+          // Call n8n webhook to generate interactive script
+          startInteractiveGeneration(podcast).catch(err => {
+            console.error('Failed to start interactive generation:', err)
+          })
+        } else if (formData.type === 'live-tutor') {
+          // Call n8n webhook to generate live tutor script
+          startLiveTutorGeneration(podcast).catch(err => {
+            console.error('Failed to start live tutor generation:', err)
+          })
+        } else if (formData.type === 'static-video') {
+          // Call n8n webhook to generate static video
+          startStaticVideoGeneration(podcast).catch(err => {
+            console.error('Failed to start static video generation:', err)
+          })
+        } else {
+          // Call the pre-recorded podcast generation endpoint
+          startPreRecordedGeneration(podcast).catch(err => {
+            console.error('Failed to start pre-recorded generation:', err)
+          })
+        }
+      }, 0)
     } catch (err) {
       console.error('Create podcast error', err)
       setError(err.message || 'Failed to create podcast')
@@ -141,7 +300,7 @@ export default function CreatePodcast() {
               <label className="block text-sm font-medium mb-2">
                 Podcast Type *
               </label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <button
                   type="button"
                   onClick={() => updateField('type', 'pre-recorded')}
@@ -156,18 +315,6 @@ export default function CreatePodcast() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => updateField('type', 'live-tutor')}
-                  className={`px-4 py-3 border rounded text-center ${
-                    formData.type === 'live-tutor'
-                      ? 'border-indigo-500 bg-indigo-50'
-                      : 'hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="font-medium">Live Tutor</div>
-                  <div className="text-xs text-gray-500 mt-1">Q&A session</div>
-                </button>
-                <button
-                  type="button"
                   onClick={() => updateField('type', 'live-interactive')}
                   className={`px-4 py-3 border rounded text-center ${
                     formData.type === 'live-interactive'
@@ -177,6 +324,30 @@ export default function CreatePodcast() {
                 >
                   <div className="font-medium">Live Interactive</div>
                   <div className="text-xs text-gray-500 mt-1">Discussion</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateField('type', 'live-tutor')}
+                  className={`px-4 py-3 border rounded text-center ${
+                    formData.type === 'live-tutor'
+                      ? 'border-indigo-500 bg-indigo-50'
+                      : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="font-medium">Live Tutor</div>
+                  <div className="text-xs text-gray-500 mt-1">Q&A + Slides</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateField('type', 'static-video')}
+                  className={`px-4 py-3 border rounded text-center ${
+                    formData.type === 'static-video'
+                      ? 'border-indigo-500 bg-indigo-50'
+                      : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="font-medium">Video</div>
+                  <div className="text-xs text-gray-500 mt-1">YouTube-style</div>
                 </button>
               </div>
             </div>
