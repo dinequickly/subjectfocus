@@ -73,8 +73,9 @@ function truncate(str, max) {
 }
 
 /**
- * Fetch Canvas content via vector search for RAG
- * Returns relevant chunks from linked Canvas courses
+ * Fetch Canvas content via intelligent search for RAG
+ * Returns relevant chunks from linked Canvas courses using AI-analyzed query strategy
+ * Falls back to basic vector search if intelligent search fails
  */
 async function getCanvasContext(query, studySetId, userId) {
   try {
@@ -84,8 +85,49 @@ async function getCanvasContext(query, studySetId, userId) {
     }
 
     console.log('Fetching canvas context for query:', query)
+    const endpoint = `${API_BASE_URL}/api/intelligent-search`
+    console.log('Calling intelligent search endpoint:', endpoint)
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        study_set_id: studySetId,
+        user_id: userId
+      })
+    })
+
+    if (!response.ok) {
+      console.error('Intelligent search response error:', response.status, response.statusText)
+      console.log('Falling back to basic vector search...')
+      return await getCanvasContextFallback(query, studySetId, userId)
+    }
+
+    const { results, search_strategy } = await response.json()
+    console.log('Canvas context results:', results?.length || 0)
+    console.log('Search strategy used:', {
+      strategy: search_strategy?.strategy_used,
+      reasoning: search_strategy?.reasoning,
+      filters: search_strategy?.filters_applied,
+      scope: search_strategy?.search_scope
+    })
+    return results || []
+  } catch (error) {
+    console.error('Failed to fetch canvas context:', error?.message || error)
+    console.log('Falling back to basic vector search...')
+    return await getCanvasContextFallback(query, studySetId, userId)
+  }
+}
+
+/**
+ * Fallback to basic vector search if intelligent search fails
+ * This ensures RAG still works even if the advanced system has issues
+ */
+async function getCanvasContextFallback(query, studySetId, userId) {
+  try {
     const endpoint = `${API_BASE_URL}/api/vector-search`
-    console.log('Calling vector search endpoint:', endpoint)
+    console.log('Using fallback vector search endpoint:', endpoint)
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -100,15 +142,15 @@ async function getCanvasContext(query, studySetId, userId) {
     })
 
     if (!response.ok) {
-      console.error('Vector search response error:', response.status, response.statusText)
+      console.error('Fallback vector search also failed:', response.status)
       return []
     }
 
     const { results } = await response.json()
-    console.log('Canvas context results:', results?.length || 0)
+    console.log('Fallback search returned:', results?.length || 0, 'results')
     return results || []
   } catch (error) {
-    console.error('Failed to fetch canvas context:', error?.message || error)
+    console.error('Fallback vector search error:', error?.message || error)
     return []
   }
 }

@@ -22,6 +22,7 @@ import CreatePracticeTest from './pages/CreatePracticeTest'
 import TakePracticeTest from './pages/TakePracticeTest'
 import PracticeTestResults from './pages/PracticeTestResults'
 import PracticeTestsList from './pages/PracticeTestsList'
+import StudyPlanner from './pages/StudyPlanner'
 
 export default function App() {
   return (
@@ -156,6 +157,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <CanvasSync />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/study-planner"
+            element={
+              <ProtectedRoute>
+                <StudyPlanner />
               </ProtectedRoute>
             }
           />

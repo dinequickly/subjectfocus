@@ -23,9 +23,14 @@ export default function NavBar() {
             <Link to="/study-set/new" className="px-3 py-1.5 rounded bg-indigo-600 text-white text-sm">Create Study Set</Link>
           )}
           {user && (
-            <Link to="/canvas/sync" className="px-3 py-1.5 rounded border border-gray-300 text-gray-700 text-sm hover:bg-gray-50">
-              Canvas Sync
-            </Link>
+            <>
+              <Link to="/study-planner" className="px-3 py-1.5 rounded border border-blue-500 text-blue-600 text-sm hover:bg-blue-50 font-medium">
+                Study Planner
+              </Link>
+              <Link to="/canvas/sync" className="px-3 py-1.5 rounded border border-gray-300 text-gray-700 text-sm hover:bg-gray-50">
+                Canvas Sync
+              </Link>
+            </>
           )}
           {user ? (
             <>
